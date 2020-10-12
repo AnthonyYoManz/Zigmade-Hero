@@ -8,6 +8,9 @@ const k32 = std.os.windows.kernel32;
 // TODO: Add these to std.os.windows.bits
 const VOID = c_void;
 
+// TODO: Add these to std.os.windows.kernel32
+pub extern "kernel32" fn GetCommandLineW() callconv(.Stdcall) LPWSTR;
+
 // TODO: Add these to std.os.windows.user32
 extern "user32" fn BeginPaint(hWnd: HWND, lpPaint: LPPAINTSTRUCT) callconv(.Stdcall) HDC;
 extern "user32" fn EndPaint(hWnd: HWND, lpPaint: LPPAINTSTRUCT) callconv(.Stdcall) BOOL;
@@ -286,8 +289,24 @@ fn win32ErrorExit() void {
     k32.ExitProcess(@bitCast(u16, err));
 }
 
-pub fn wWinMain(instance: HINSTANCE, prevInstance: ?HINSTANCE, param: LPWSTR, cmdShow: INT) INT {
-    const wnd_class_info = WNDCLASSEXA{
+pub fn main() !void {
+    const hInstance = std.os.windows.kernel32.GetModuleHandleA(null);
+    const lpCmdLine = GetCommandLineW();
+
+    // There's no (documented) way to get the nCmdShow parameter, so we're
+    // using this fairly standard default.
+    const nCmdShow = std.os.windows.user32.SW_SHOW;
+
+    _ = wWinMain(
+        @ptrCast(HINSTANCE, hInstance),
+        null,
+        lpCmdLine,
+        nCmdShow
+    );
+}
+
+fn wWinMain(instance: HINSTANCE, prevInstance: ?HINSTANCE, param: LPWSTR, cmdShow: INT) INT {
+    const wnd_class_info = WNDCLASSEXA {
         .cbSize = @sizeOf(WNDCLASSEXA),
         .style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW,
         .lpfnWndProc = win32WndProc,
