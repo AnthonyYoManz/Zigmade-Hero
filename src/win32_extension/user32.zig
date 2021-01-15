@@ -5,6 +5,7 @@ usingnamespace std.os.windows.user32;
 pub extern "user32" fn BeginPaint(hWnd: HWND, lpPaint: LPPAINTSTRUCT) callconv(.Stdcall) HDC;
 pub extern "user32" fn EndPaint(hWnd: HWND, lpPaint: LPPAINTSTRUCT) callconv(.Stdcall) BOOL;
 pub extern "user32" fn GetClientRect(hWnd: HWND, lpRect: LPRECT) callconv(.Stdcall) BOOL;
+pub extern "user32" fn ReleaseDC(hWnd: HWND, dc: HDC) callconv(.Stdcall) INT;
 
 pub const RECT = extern struct {
     left: LONG,
