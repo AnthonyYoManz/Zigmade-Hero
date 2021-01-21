@@ -2,125 +2,14 @@ const std = @import("std");
 const k32 = std.os.windows.kernel32;
 usingnamespace std.os.windows;
 usingnamespace std.os.windows.user32;
+
+const g = @import("graphics.zig");
+usingnamespace @import("common.zig");
 usingnamespace @import("win32_extension.zig");
 
+const initial_resolution = Size.init(960, 540);
 var running = false;
-
-const resolutionWidth = 960;
-const resolutionHeight = 540;
-
-var bmpData: ?*VOID = null;
-var bmpWidth: i32 = resolutionWidth;
-var bmpHeight: i32 = resolutionHeight;
-var bmpInfo = BITMAPINFO{
-    .bmiHeader = BITMAPINFOHEADER{
-        .biSize = @sizeOf(BITMAPINFOHEADER),
-        .biWidth = resolutionWidth,
-        .biHeight = resolutionHeight,
-        .biPlanes = 1,
-        .biBitCount = 32,
-        .biCompression = BI_RGB,
-        .biSizeImage = 0,
-        .biXPelsPerMeter = 0,
-        .biYPelsPerMeter = 0,
-        .biClrUsed = 0,
-        .biClrImportant = 0,
-    },
-    .bmiColors = undefined,
-};
-
-fn win32ResizeDIBSection(w: i32, h: i32) void {
-    // Update bitmap info
-    bmpWidth = w;
-    bmpHeight = h;
-    bmpInfo.bmiHeader = BITMAPINFOHEADER{
-        .biSize = @sizeOf(BITMAPINFOHEADER),
-        .biWidth = bmpWidth,
-        .biHeight = -bmpHeight,
-        .biPlanes = 1,
-        .biBitCount = 32,
-        .biCompression = BI_RGB,
-        .biSizeImage = 0,
-        .biXPelsPerMeter = 0,
-        .biYPelsPerMeter = 0,
-        .biClrUsed = 0,
-        .biClrImportant = 0,
-    };
-
-    // Free existing bitmap data
-    if (bmpData != null) {
-        _ = VirtualFree(bmpData, 0, MEM_RELEASE);
-        bmpData = null;
-    }
-
-    // Alloc new bitmap data
-    const bytesPerPixel = 4;
-    const signedSize = bytesPerPixel * bmpWidth * bmpHeight;
-    if (signedSize > 0) {
-        const size = @intCast(usize, signedSize);
-        bmpData = VirtualAlloc(null, size, MEM_COMMIT, PAGE_READWRITE) catch null;
-    }
-
-    // Write some nonsense to the new bitmap data
-    fillBmp(0, 0, 0);
-}
-
-fn renderWeirdGradient(tick: usize) void {
-    if (bmpData == null) {
-        return;
-    }
-
-    const bytesPerPixel = 4;
-    const bmpDataAddr = @ptrToInt(bmpData);
-    const pitch = @intCast(usize, bmpWidth * bytesPerPixel);
-
-    var rowIdx: usize = 0;
-    var y: usize = 0;
-    while (y < bmpHeight) : (y += 1) {
-        var x: usize = 0;
-        while (x < bmpWidth) : (x += 1) {
-            const idx = rowIdx + x * bytesPerPixel;
-            @intToPtr(*u8, bmpDataAddr + idx + 0).* = 0;
-            @intToPtr(*u8, bmpDataAddr + idx + 1).* = 0;
-            @intToPtr(*u8, bmpDataAddr + idx + 2).* = @intCast(u8, (tick +% (x ^ y)) & 0xFF);
-            @intToPtr(*u8, bmpDataAddr + idx + 3).* = 255;
-        }
-        rowIdx += pitch;
-    }
-}
-
-fn fillBmp(r: u8, g: u8, b: u8) void {
-    if (bmpData == null) {
-        return;
-    }
-
-    const bytesPerPixel = 4;
-    const bmpDataAddr = @ptrToInt(bmpData);
-    const pitch = @intCast(usize, bmpWidth * bytesPerPixel);
-
-    var rowIdx: usize = 0;
-    var y: usize = 0;
-    while (y < bmpHeight) : (y += 1) {
-        var x: usize = 0;
-        while (x < bmpWidth) : (x += 1) {
-            const idx = rowIdx + x * bytesPerPixel;
-            @intToPtr(*u8, bmpDataAddr + idx + 0).* = b;
-            @intToPtr(*u8, bmpDataAddr + idx + 1).* = g;
-            @intToPtr(*u8, bmpDataAddr + idx + 2).* = r;
-            @intToPtr(*u8, bmpDataAddr + idx + 3).* = 255;
-        }
-        rowIdx += pitch;
-    }
-}
-
-fn win32UpdateWindow(dc: HDC, x: i32, y: i32, w: i32, h: i32) void {
-    // Copy bitmap data to the screen
-    if (bmpData != null) {
-        _ = StretchDIBits(dc, 0, 0, w, h, // Dest
-            0, 0, bmpWidth, bmpHeight, // Source
-            bmpData.?, @ptrCast(*VOID, &bmpInfo), DIB_RGB_COLORS, SRCCOPY);
-    }
-}
+var offscreen_buf = g.Bitmap.withSize(initial_resolution);
 
 fn win32WndProc(wnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.Stdcall) LRESULT {
     var result: LRESULT = null;
@@ -132,20 +21,26 @@ fn win32WndProc(wnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.
 
             const x = paint.rcPaint.left;
             const y = paint.rcPaint.top;
-            const width = paint.rcPaint.right - x;
-            const height = paint.rcPaint.bottom - y;
+            const dst_size = Size{
+                .w = paint.rcPaint.right - paint.rcPaint.left,
+                .h = paint.rcPaint.bottom - paint.rcPaint.top,
+            };
 
-            _ = PatBlt(dc, x, y, width, height, BLACKNESS);
-            win32UpdateWindow(dc, x, y, width, height);
+            _ = PatBlt(dc, x, y, dst_size.w, dst_size.h, BLACKNESS);
+            g.win32PresentBufferToWindow(&offscreen_buf, dc, dst_size);
 
             _ = EndPaint(wnd, &paint);
         },
         WM_SIZE => {
-            var clientRect: RECT = undefined;
-            _ = GetClientRect(wnd, &clientRect);
-            const width = clientRect.right - clientRect.left;
-            const height = clientRect.bottom - clientRect.top;
-            win32ResizeDIBSection(width, height);
+            var client_rect: RECT = undefined;
+            _ = GetClientRect(wnd, &client_rect);
+
+            const dst_size = Size{
+                .w = client_rect.right - client_rect.left,
+                .h = client_rect.bottom - client_rect.top,
+            };
+
+            g.win32ResizeBmp(&offscreen_buf, dst_size);
         },
         WM_DESTROY => {
             running = false;
@@ -199,27 +94,24 @@ pub fn wWinMain(instance: HINSTANCE, prevInstance: ?HINSTANCE, param: LPWSTR, cm
         win32ErrorExit();
     }
 
-    const optional_wnd = CreateWindowExA(
+    const wnd = CreateWindowExA(
         0,
         "Zigmade Hero",
         "Zigmade Hero",
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        resolutionWidth,
-        resolutionHeight,
+        initial_resolution.w,
+        initial_resolution.h,
         null,
         null,
         instance,
         null,
-    );
-
-    if (optional_wnd == null) {
+    ) orelse {
         std.debug.warn("Failed to create window\n", .{});
         win32ErrorExit();
-    }
-
-    const wnd = optional_wnd.?;
+        unreachable;
+    };
 
     running = true;
     var tick: usize = 0;
@@ -231,16 +123,20 @@ pub fn wWinMain(instance: HINSTANCE, prevInstance: ?HINSTANCE, param: LPWSTR, cm
         }
 
         // Update bitmap
-        renderWeirdGradient(tick);
+        g.renderWeirdGradient(&offscreen_buf, tick);
         tick +%= 1;
 
         // Render bitmap to screen
         if (GetDC(wnd)) |dc| {
-            var clientRect: RECT = undefined;
-            _ = GetClientRect(wnd, &clientRect);
-            const wndWidth = clientRect.right - clientRect.left;
-            const wndHeight = clientRect.bottom - clientRect.top;
-            win32UpdateWindow(dc, 0, 0, wndWidth, wndHeight);
+            var client_rect: RECT = undefined;
+            _ = GetClientRect(wnd, &client_rect);
+
+            const dst_size = Size{
+                .w = client_rect.right - client_rect.left,
+                .h = client_rect.bottom - client_rect.top,
+            };
+
+            g.win32PresentBufferToWindow(&offscreen_buf, dc, dst_size);
             _ = ReleaseDC(wnd, dc);
         }
     }
