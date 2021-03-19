@@ -10,4 +10,4 @@ I occasionally skip implementing parts of videos, usually when I'm watching
 them with a specific goal in mind. Below is a list of parts that have been 
 skipped and may be revisited in future.
 
-- Day 006, 00:02:00, gamepad input handling
+- [Day 006, 00:02:00](https://youtu.be/J3y1x54vyIQ?t=121), gamepad input handling
