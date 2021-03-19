@@ -11,10 +11,12 @@ const initial_resolution = Size.init(960, 540);
 var running = false;
 var offscreen_buf = g.Bitmap.withSize(initial_resolution);
 
+// Callback procedure that Windows invokes to handle events for a window
 fn win32WndProc(wnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.Stdcall) LRESULT {
     var result: LRESULT = null;
 
     switch (msg) {
+        // Window repaint event
         WM_PAINT => {
             var paint: PAINTSTRUCT = undefined;
             const dc = BeginPaint(wnd, &paint);
@@ -31,6 +33,8 @@ fn win32WndProc(wnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.
 
             _ = EndPaint(wnd, &paint);
         },
+
+        // Window resize event
         WM_SIZE => {
             var client_rect: RECT = undefined;
             _ = GetClientRect(wnd, &client_rect);
@@ -42,6 +46,8 @@ fn win32WndProc(wnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.
 
             g.win32ResizeBmp(&offscreen_buf, dst_size);
         },
+
+        // Various forms of window closure events
         WM_DESTROY => {
             running = false;
         },
@@ -51,7 +57,12 @@ fn win32WndProc(wnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.
         WM_QUIT => {
             running = false;
         },
+
+        // We have to return 0/null for this one to let Windows know we handled it,
+        // otherwise the window won't open correctly.
         WM_ACTIVATEAPP => {},
+
+        // Default to the default event handler for other events
         else => {
             result = DefWindowProcA(wnd, msg, wParam, lParam);
         },
@@ -60,7 +71,8 @@ fn win32WndProc(wnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.
     return result;
 }
 
-fn win32ErrorExit() void {
+// Convenience function to print the last error message and exit with the error code.
+fn win32ErrorExit() noreturn {
     const err = k32.GetLastError();
     var buf16: [256]u16 = undefined;
     var buf8: [256]u8 = undefined;
@@ -72,7 +84,9 @@ fn win32ErrorExit() void {
     k32.ExitProcess(@bitCast(u16, err));
 }
 
+// Our entrypoint.
 pub fn wWinMain(instance: HINSTANCE, prevInstance: ?HINSTANCE, param: LPWSTR, cmdShow: INT) INT {
+    // Define our window class
     const wnd_class_info = WNDCLASSEXA{
         .cbSize = @sizeOf(WNDCLASSEXA),
         .style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW,
@@ -88,12 +102,14 @@ pub fn wWinMain(instance: HINSTANCE, prevInstance: ?HINSTANCE, param: LPWSTR, cm
         .hIconSm = null,
     };
 
+    // Register the window class
     const wnd_class = RegisterClassExA(&wnd_class_info);
     if (wnd_class == 0) {
         std.debug.warn("Failed to register window class\n", .{});
         win32ErrorExit();
     }
 
+    // Create the window!
     const wnd = CreateWindowExA(
         0,
         "Zigmade Hero",
@@ -110,12 +126,13 @@ pub fn wWinMain(instance: HINSTANCE, prevInstance: ?HINSTANCE, param: LPWSTR, cm
     ) orelse {
         std.debug.warn("Failed to create window\n", .{});
         win32ErrorExit();
-        unreachable;
     };
 
+    // Begin our main loop
     running = true;
     var tick: usize = 0;
     while (running) {
+        // Handle window events
         var msg: MSG = undefined;
         while (PeekMessageA(&msg, wnd, 0, 0, PM_REMOVE)) {
             _ = TranslateMessage(&msg);
