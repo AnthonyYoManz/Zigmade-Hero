@@ -34,6 +34,30 @@ fn win32WndProc(wnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.
             _ = EndPaint(wnd, &paint);
         },
 
+        // Keyboard events
+        WM_SYSKEYDOWN, WM_KEYDOWN, WM_SYSKEYUP, WM_KEYUP => {
+            const virt_keycode = @intCast(u32, wParam & std.math.maxInt(u32));
+
+            const lparam_usize = @ptrToInt(lParam);
+            const max = @intCast(usize, std.math.maxInt(u32));
+            const extras: u32 = @intCast(u32, lparam_usize & max);
+            const was_down = (extras & (1 << 30)) != 0;
+            const is_down = (extras & (1 << 31)) == 0;
+
+            const str = if (is_down) "pressed" else "released";
+
+            if (was_down != is_down) {
+                switch (virt_keycode) {
+                    'W' => std.debug.warn("W {}\n", .{str}),
+                    'A' => std.debug.warn("A {}\n", .{str}),
+                    'S' => std.debug.warn("S {}\n", .{str}),
+                    'D' => std.debug.warn("D {}\n", .{str}),
+                    0x1B => std.debug.warn("Escape {}\n", .{str}),
+                    else => {},
+                }
+            }
+        },
+
         // Window resize event
         WM_SIZE => {
             var client_rect: RECT = undefined;
@@ -48,13 +72,7 @@ fn win32WndProc(wnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.
         },
 
         // Various forms of window closure events
-        WM_DESTROY => {
-            running = false;
-        },
-        WM_CLOSE => {
-            running = false;
-        },
-        WM_QUIT => {
+        WM_DESTROY, WM_CLOSE, WM_QUIT => {
             running = false;
         },
 
